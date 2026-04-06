@@ -10,14 +10,15 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Settings
@@ -48,15 +49,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.numilike.ui.theme.DarkLineNumbers
@@ -64,8 +67,6 @@ import com.numilike.ui.theme.DarkResultText
 import com.numilike.ui.theme.LightLineNumbers
 import com.numilike.ui.theme.LightResultText
 import com.numilike.viewmodel.MainViewModel
-
-private data class LineMetrics(val yOffset: Float, val height: Float)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -80,11 +81,27 @@ fun CalculatorScreen(viewModel: MainViewModel) {
     var showOverflowMenu by remember { mutableStateOf(false) }
     var showCopySheet by remember { mutableStateOf(false) }
     var copySheetLineIndex by remember { mutableIntStateOf(-1) }
-    var textLayoutResult by remember { mutableStateOf<TextLayoutResult?>(null) }
+
+    // Split text into per-line state
+    val lines = remember(text) { text.split("\n") }
+
+    // Track which line should receive focus and cursor position
+    var focusLineIndex by remember { mutableIntStateOf(0) }
+    var focusCursorPos by remember { mutableIntStateOf(0) }
+    var focusTrigger by remember { mutableIntStateOf(0) } // increment to re-trigger focus
+
+    val listState = rememberLazyListState()
 
     LaunchedEffect(Unit) {
         viewModel.snackbarMessage.collect { message ->
             snackbarHostState.showSnackbar(message)
+        }
+    }
+
+    // Auto-scroll to focused line
+    LaunchedEffect(focusLineIndex, focusTrigger) {
+        if (focusLineIndex in lines.indices) {
+            listState.animateScrollToItem(focusLineIndex)
         }
     }
 
@@ -139,115 +156,157 @@ fun CalculatorScreen(viewModel: MainViewModel) {
         val lineNumberColor = if (isDark) DarkLineNumbers else LightLineNumbers
         val resultColor = if (isDark) DarkResultText else LightResultText
         val dividerColor = MaterialTheme.colorScheme.outline
-        val density = LocalDensity.current
+        val minRowHeight = 44.dp
 
-        val lineMetrics = remember(textLayoutResult, text) {
-            computeLineMetrics(text, textLayoutResult)
-        }
-
-        val screenHeight = LocalConfiguration.current.screenHeightDp.dp
-        val scrollState = rememberScrollState()
-
-        // BasicTextField sized to content (grows beyond screen), wrapped in scroll.
-        // decorationBox provides the line numbers / results layout.
-        // Scroll is on the outer Box so BasicTextField keeps focus control.
-        Box(
+        LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(paddingValues)
-                .verticalScroll(scrollState),
+                .padding(paddingValues),
+            state = listState,
         ) {
-        BasicTextField(
-            value = text,
-            onValueChange = { viewModel.onTextChange(it) },
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = screenHeight),
-            textStyle = MaterialTheme.typography.bodyLarge.copy(
-                color = MaterialTheme.colorScheme.onBackground,
-            ),
-            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-            onTextLayout = { textLayoutResult = it },
-            decorationBox = { innerTextField ->
-                Row(modifier = Modifier.fillMaxWidth()) {
-                    // ── Line number gutter ──────────────────────
-                    Box(modifier = Modifier.width(36.dp)) {
-                        lineMetrics.forEachIndexed { index, metrics ->
-                            val yDp = with(density) { metrics.yOffset.toDp() }
-                            Text(
-                                text = "${index + 1}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = lineNumberColor,
-                                textAlign = TextAlign.End,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .offset(y = yDp)
-                                    .padding(end = 6.dp),
-                            )
-                        }
-                        textLayoutResult?.let {
-                            Spacer(Modifier.height(with(density) { it.size.height.toDp() }))
-                        }
+            itemsIndexed(
+                items = lines,
+                key = { index, _ -> index },
+            ) { index, lineText ->
+                val result = results.getOrNull(index)
+                val focusRequester = remember { FocusRequester() }
+
+                // Request focus when this is the target line
+                LaunchedEffect(focusLineIndex, focusTrigger) {
+                    if (index == focusLineIndex) {
+                        try { focusRequester.requestFocus() } catch (_: Exception) {}
                     }
+                }
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .drawBehind {
+                            // Draw bottom border as subtle line separator
+                            drawLine(
+                                color = dividerColor.copy(alpha = 0.15f),
+                                start = Offset(0f, size.height),
+                                end = Offset(size.width, size.height),
+                                strokeWidth = 0.5.dp.toPx(),
+                            )
+                        },
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    // ── Line number ──────────────────────────────
+                    Text(
+                        text = "${index + 1}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = lineNumberColor,
+                        textAlign = TextAlign.End,
+                        modifier = Modifier
+                            .width(32.dp)
+                            .padding(end = 6.dp),
+                    )
 
                     // ── Left divider ─────────────────────────────
                     Box(
                         modifier = Modifier
                             .width(1.dp)
-                            .then(
-                                textLayoutResult?.let { layout ->
-                                    Modifier.height(with(density) { layout.size.height.toDp().coerceAtLeast(48.dp) })
-                                } ?: Modifier.height(400.dp)
-                            )
+                            .height(minRowHeight)
                             .drawBehind {
                                 drawLine(dividerColor, Offset(0f, 0f), Offset(0f, size.height), 1.dp.toPx())
-                            }
+                            },
                     )
 
-                    // ── Input text ────────────────────────────────
-                    Box(
+                    // ── Line input ────────────────────────────────
+                    var tfValue by remember(lineText, focusTrigger) {
+                        val cursor = if (index == focusLineIndex) {
+                            focusCursorPos.coerceIn(0, lineText.length)
+                        } else {
+                            lineText.length
+                        }
+                        mutableStateOf(TextFieldValue(lineText, TextRange(cursor)))
+                    }
+
+                    BasicTextField(
+                        value = tfValue,
+                        onValueChange = { newValue ->
+                            val newText = newValue.text
+                            if (newText.contains("\n")) {
+                                // User pressed Enter — split into two lines
+                                val cursorPos = newValue.selection.start.coerceAtMost(newText.indexOf("\n").let { if (it < 0) newText.length else it })
+                                val before = newText.substring(0, newText.indexOf("\n"))
+                                val after = newText.substring(newText.indexOf("\n") + 1)
+                                val newLines = lines.toMutableList()
+                                newLines[index] = before
+                                newLines.add(index + 1, after)
+                                viewModel.onTextChange(newLines.joinToString("\n"))
+                                focusLineIndex = index + 1
+                                focusCursorPos = 0
+                                focusTrigger++
+                            } else if (newText.isEmpty() && lineText.isNotEmpty() && newValue.selection.start == 0 && tfValue.selection.start == 0) {
+                                // Backspace at start of non-empty line — don't merge, just clear
+                                tfValue = newValue
+                                val newLines = lines.toMutableList()
+                                newLines[index] = newText
+                                viewModel.onTextChange(newLines.joinToString("\n"))
+                            } else if (newText.isEmpty() && lineText.isEmpty() && index > 0) {
+                                // Backspace on empty line — merge with previous
+                                val newLines = lines.toMutableList()
+                                val prevLen = newLines[index - 1].length
+                                newLines.removeAt(index)
+                                viewModel.onTextChange(newLines.joinToString("\n"))
+                                focusLineIndex = index - 1
+                                focusCursorPos = prevLen
+                                focusTrigger++
+                            } else {
+                                tfValue = newValue
+                                val newLines = lines.toMutableList()
+                                newLines[index] = newText
+                                viewModel.onTextChange(newLines.joinToString("\n"))
+                            }
+                        },
                         modifier = Modifier
                             .weight(1f)
-                            .padding(horizontal = 8.dp),
-                    ) {
-                        if (text.isEmpty()) {
-                            Text(
-                                text = "Start typing...",
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = lineNumberColor,
-                            )
-                        }
-                        innerTextField()
-                    }
+                            .padding(horizontal = 8.dp, vertical = 10.dp)
+                            .focusRequester(focusRequester),
+                        textStyle = MaterialTheme.typography.bodyLarge.copy(
+                            color = MaterialTheme.colorScheme.onBackground,
+                        ),
+                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                        keyboardActions = KeyboardActions(
+                            onNext = {
+                                // Enter/Next key — create new line below
+                                val cursorPos = tfValue.selection.start
+                                val before = tfValue.text.substring(0, cursorPos)
+                                val after = tfValue.text.substring(cursorPos)
+                                val newLines = lines.toMutableList()
+                                newLines[index] = before
+                                newLines.add(index + 1, after)
+                                viewModel.onTextChange(newLines.joinToString("\n"))
+                                focusLineIndex = index + 1
+                                focusCursorPos = 0
+                                focusTrigger++
+                            },
+                        ),
+                    )
 
                     // ── Right divider ─────────────────────────────
                     Box(
                         modifier = Modifier
                             .width(1.dp)
-                            .then(
-                                textLayoutResult?.let { layout ->
-                                    Modifier.height(with(density) { layout.size.height.toDp().coerceAtLeast(48.dp) })
-                                } ?: Modifier.height(400.dp)
-                            )
+                            .height(minRowHeight)
                             .drawBehind {
                                 drawLine(dividerColor, Offset(0f, 0f), Offset(0f, size.height), 1.dp.toPx())
-                            }
+                            },
                     )
 
-                    // ── Results column ─────────────────────────────
-                    Box(modifier = Modifier.widthIn(min = 100.dp)) {
-                        lineMetrics.forEachIndexed { index, metrics ->
-                            val result = results.getOrNull(index) ?: return@forEachIndexed
-                            val yDp = with(density) { metrics.yOffset.toDp() }
-                            val hDp = with(density) { metrics.height.toDp() }
-
-                            @OptIn(ExperimentalFoundationApi::class)
-                            Box(
-                                modifier = Modifier
-                                    .offset(y = yDp)
-                                    .height(hDp)
-                                    .fillMaxWidth()
-                                    .combinedClickable(
+                    // ── Result ─────────────────────────────────────
+                    @OptIn(ExperimentalFoundationApi::class)
+                    Box(
+                        modifier = Modifier
+                            .widthIn(min = 100.dp)
+                            .height(minRowHeight)
+                            .then(
+                                if (result != null) {
+                                    Modifier.combinedClickable(
                                         onClick = {
                                             viewModel.copyResult(result.displayText) { t ->
                                                 clipboardManager.setText(AnnotatedString(t))
@@ -257,27 +316,47 @@ fun CalculatorScreen(viewModel: MainViewModel) {
                                             copySheetLineIndex = index
                                             showCopySheet = true
                                         },
-                                    ),
-                                contentAlignment = Alignment.CenterEnd,
-                            ) {
-                                Text(
-                                    text = result.displayText,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = resultColor,
-                                    textAlign = TextAlign.End,
-                                    maxLines = 1,
-                                    modifier = Modifier.padding(end = 8.dp),
-                                )
-                            }
-                        }
-                        textLayoutResult?.let {
-                            Spacer(Modifier.height(with(density) { it.size.height.toDp() }))
+                                    )
+                                } else Modifier
+                            ),
+                        contentAlignment = Alignment.CenterEnd,
+                    ) {
+                        if (result != null) {
+                            Text(
+                                text = result.displayText,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = resultColor,
+                                textAlign = TextAlign.End,
+                                maxLines = 1,
+                                modifier = Modifier.padding(end = 8.dp),
+                            )
                         }
                     }
                 }
-            },
-        )
-        } // close Box(verticalScroll)
+            }
+
+            // Empty tap area at the bottom to create new lines
+            item {
+                @OptIn(ExperimentalFoundationApi::class)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(300.dp)
+                        .combinedClickable(
+                            onClick = {
+                                // Add a new empty line if last line isn't empty
+                                if (lines.lastOrNull()?.isNotEmpty() == true) {
+                                    viewModel.onTextChange(text + "\n")
+                                }
+                                focusLineIndex = lines.size.coerceAtLeast(1) - 1
+                                focusCursorPos = 0
+                                focusTrigger++
+                            },
+                            onLongClick = {},
+                        ),
+                )
+            }
+        }
     }
 
     // ── Dialogs ──────────────────────────────────────────────────
@@ -293,7 +372,7 @@ fun CalculatorScreen(viewModel: MainViewModel) {
 
     if (showCopySheet && copySheetLineIndex >= 0) {
         val result = results.getOrNull(copySheetLineIndex)
-        val line = text.split("\n").getOrNull(copySheetLineIndex) ?: ""
+        val line = lines.getOrNull(copySheetLineIndex) ?: ""
         if (result != null) {
             ModalBottomSheet(
                 onDismissRequest = { showCopySheet = false; copySheetLineIndex = -1 },
@@ -319,28 +398,6 @@ fun CalculatorScreen(viewModel: MainViewModel) {
             }
         }
     }
-}
-
-private fun computeLineMetrics(text: String, layout: TextLayoutResult?): List<LineMetrics> {
-    if (layout == null || text.isEmpty()) {
-        val count = text.split("\n").size.coerceAtLeast(1)
-        return List(count) { i -> LineMetrics(yOffset = i * 56f, height = 56f) }
-    }
-    val lines = text.split("\n")
-    val metrics = mutableListOf<LineMetrics>()
-    var charOffset = 0
-    val maxOffset = layout.layoutInput.text.length.coerceAtLeast(1) - 1
-    for (logicalLine in lines) {
-        val safeOffset = charOffset.coerceIn(0, maxOffset)
-        val visualLine = layout.getLineForOffset(safeOffset)
-        val yTop = layout.getLineTop(visualLine)
-        val endOffset = (charOffset + logicalLine.length).coerceIn(0, maxOffset)
-        val lastVisualLine = layout.getLineForOffset(endOffset)
-        val yBottom = layout.getLineBottom(lastVisualLine)
-        metrics.add(LineMetrics(yOffset = yTop, height = (yBottom - yTop).coerceAtLeast(24f)))
-        charOffset += logicalLine.length + 1
-    }
-    return metrics
 }
 
 private fun Color.luminance(): Float = 0.2126f * red + 0.7152f * green + 0.0722f * blue
