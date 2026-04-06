@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -53,6 +54,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.style.TextAlign
@@ -143,22 +145,31 @@ fun CalculatorScreen(viewModel: MainViewModel) {
             computeLineMetrics(text, textLayoutResult)
         }
 
-        // Step 1: Bare minimum — BasicTextField with decorationBox, NO verticalScroll.
-        // The text field handles its own focus and soft keyboard.
+        val screenHeight = LocalConfiguration.current.screenHeightDp.dp
+        val scrollState = rememberScrollState()
+
+        // BasicTextField sized to content (grows beyond screen), wrapped in scroll.
+        // decorationBox provides the line numbers / results layout.
+        // Scroll is on the outer Box so BasicTextField keeps focus control.
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+                .verticalScroll(scrollState),
+        ) {
         BasicTextField(
             value = text,
             onValueChange = { viewModel.onTextChange(it) },
             modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues),
+                .fillMaxWidth()
+                .heightIn(min = screenHeight),
             textStyle = MaterialTheme.typography.bodyLarge.copy(
                 color = MaterialTheme.colorScheme.onBackground,
             ),
             cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
             onTextLayout = { textLayoutResult = it },
             decorationBox = { innerTextField ->
-                val scrollState = rememberScrollState()
-                Row(modifier = Modifier.fillMaxSize().verticalScroll(scrollState)) {
+                Row(modifier = Modifier.fillMaxWidth()) {
                     // ── Line number gutter ──────────────────────
                     Box(modifier = Modifier.width(36.dp)) {
                         lineMetrics.forEachIndexed { index, metrics ->
@@ -266,6 +277,7 @@ fun CalculatorScreen(viewModel: MainViewModel) {
                 }
             },
         )
+        } // close Box(verticalScroll)
     }
 
     // ── Dialogs ──────────────────────────────────────────────────
