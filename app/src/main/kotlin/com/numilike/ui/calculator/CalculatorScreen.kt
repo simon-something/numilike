@@ -214,13 +214,18 @@ fun CalculatorScreen(viewModel: MainViewModel) {
                     )
 
                     // ── Line input ────────────────────────────────
-                    var tfValue by remember(lineText, focusTrigger) {
+                    // tfValue is the source of truth for this line's text during editing.
+                    // Only reset from external state on focusTrigger (Enter/Backspace/import).
+                    var tfValue by remember { mutableStateOf(TextFieldValue(lineText, TextRange(lineText.length))) }
+
+                    LaunchedEffect(focusTrigger) {
+                        val currentLine = lines.getOrElse(index) { "" }
                         val cursor = if (index == focusLineIndex) {
-                            focusCursorPos.coerceIn(0, lineText.length)
+                            focusCursorPos.coerceIn(0, currentLine.length)
                         } else {
-                            lineText.length
+                            currentLine.length
                         }
-                        mutableStateOf(TextFieldValue(lineText, TextRange(cursor)))
+                        tfValue = TextFieldValue(currentLine, TextRange(cursor))
                     }
 
                     BasicTextField(
