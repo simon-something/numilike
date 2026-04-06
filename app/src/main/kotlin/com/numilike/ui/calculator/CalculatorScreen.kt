@@ -5,6 +5,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -55,6 +56,8 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
@@ -88,6 +91,12 @@ fun CalculatorScreen(viewModel: MainViewModel) {
 
     // Text layout measurement
     var textLayoutResult by remember { mutableStateOf<TextLayoutResult?>(null) }
+    val focusRequester = remember { FocusRequester() }
+
+    // Auto-focus the text field on first composition
+    LaunchedEffect(Unit) {
+        focusRequester.requestFocus()
+    }
 
     LaunchedEffect(Unit) {
         viewModel.snackbarMessage.collect { message ->
@@ -218,6 +227,9 @@ fun CalculatorScreen(viewModel: MainViewModel) {
                     onValueChange = { viewModel.onTextChange(it) },
                     modifier = Modifier
                         .fillMaxWidth()
+                        .height(IntrinsicSize.Min)
+                        .defaultMinSize(minHeight = 400.dp)
+                        .focusRequester(focusRequester)
                         .padding(start = 8.dp),
                     textStyle = MaterialTheme.typography.bodyLarge.copy(
                         color = MaterialTheme.colorScheme.onBackground,
