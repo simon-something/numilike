@@ -3,12 +3,10 @@ package com.numilike.ui.calculator
 import android.content.Intent
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -37,7 +35,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.VerticalDivider
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -58,8 +55,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextLayoutResult
-import androidx.compose.ui.text.drawText
-import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.numilike.ui.theme.DarkLineNumbers
@@ -83,7 +78,6 @@ fun CalculatorScreen(viewModel: MainViewModel) {
     var showOverflowMenu by remember { mutableStateOf(false) }
     var showCopySheet by remember { mutableStateOf(false) }
     var copySheetLineIndex by remember { mutableIntStateOf(-1) }
-
     var textLayoutResult by remember { mutableStateOf<TextLayoutResult?>(null) }
 
     LaunchedEffect(Unit) {
@@ -144,33 +138,28 @@ fun CalculatorScreen(viewModel: MainViewModel) {
         val resultColor = if (isDark) DarkResultText else LightResultText
         val dividerColor = MaterialTheme.colorScheme.outline
         val density = LocalDensity.current
-        val gutterWidth = 36.dp
-        val resultWidth = 140.dp
-        val scrollState = rememberScrollState()
 
         val lineMetrics = remember(textLayoutResult, text) {
             computeLineMetrics(text, textLayoutResult)
         }
 
-        // The BasicTextField uses decorationBox to embed line numbers and results
-        // inside the same scrollable area. This way the text field owns focus and
-        // scrolling, and line numbers/results are part of its decoration.
+        // Step 1: Bare minimum — BasicTextField with decorationBox, NO verticalScroll.
+        // The text field handles its own focus and soft keyboard.
         BasicTextField(
             value = text,
             onValueChange = { viewModel.onTextChange(it) },
             modifier = Modifier
                 .fillMaxSize()
-                .padding(paddingValues)
-                .verticalScroll(scrollState),
+                .padding(paddingValues),
             textStyle = MaterialTheme.typography.bodyLarge.copy(
                 color = MaterialTheme.colorScheme.onBackground,
             ),
             cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
             onTextLayout = { textLayoutResult = it },
             decorationBox = { innerTextField ->
-                Row(modifier = Modifier.fillMaxWidth()) {
+                Row(modifier = Modifier.fillMaxSize()) {
                     // ── Line number gutter ──────────────────────
-                    Box(modifier = Modifier.width(gutterWidth)) {
+                    Box(modifier = Modifier.width(36.dp)) {
                         lineMetrics.forEachIndexed { index, metrics ->
                             val yDp = with(density) { metrics.yOffset.toDp() }
                             Text(
@@ -184,32 +173,26 @@ fun CalculatorScreen(viewModel: MainViewModel) {
                                     .padding(end = 6.dp),
                             )
                         }
-                        // Reserve height
                         textLayoutResult?.let {
                             Spacer(Modifier.height(with(density) { it.size.height.toDp() }))
                         }
                     }
 
-                    // ── Thin divider line ────────────────────────
+                    // ── Left divider ─────────────────────────────
                     Box(
                         modifier = Modifier
                             .width(1.dp)
                             .then(
                                 textLayoutResult?.let { layout ->
-                                    Modifier.height(with(density) { layout.size.height.toDp() })
-                                } ?: Modifier.fillMaxHeight()
+                                    Modifier.height(with(density) { layout.size.height.toDp().coerceAtLeast(48.dp) })
+                                } ?: Modifier.height(400.dp)
                             )
                             .drawBehind {
-                                drawLine(
-                                    color = dividerColor,
-                                    start = Offset(0f, 0f),
-                                    end = Offset(0f, size.height),
-                                    strokeWidth = 1.dp.toPx(),
-                                )
+                                drawLine(dividerColor, Offset(0f, 0f), Offset(0f, size.height), 1.dp.toPx())
                             }
                     )
 
-                    // ── Input text field ─────────────────────────
+                    // ── Input text ────────────────────────────────
                     Box(
                         modifier = Modifier
                             .weight(1f)
@@ -225,27 +208,22 @@ fun CalculatorScreen(viewModel: MainViewModel) {
                         innerTextField()
                     }
 
-                    // ── Thin divider line ────────────────────────
+                    // ── Right divider ─────────────────────────────
                     Box(
                         modifier = Modifier
                             .width(1.dp)
                             .then(
                                 textLayoutResult?.let { layout ->
-                                    Modifier.height(with(density) { layout.size.height.toDp() })
-                                } ?: Modifier.fillMaxHeight()
+                                    Modifier.height(with(density) { layout.size.height.toDp().coerceAtLeast(48.dp) })
+                                } ?: Modifier.height(400.dp)
                             )
                             .drawBehind {
-                                drawLine(
-                                    color = dividerColor,
-                                    start = Offset(0f, 0f),
-                                    end = Offset(0f, size.height),
-                                    strokeWidth = 1.dp.toPx(),
-                                )
+                                drawLine(dividerColor, Offset(0f, 0f), Offset(0f, size.height), 1.dp.toPx())
                             }
                     )
 
-                    // ── Results column ────────────────────────────
-                    Box(modifier = Modifier.widthIn(min = resultWidth)) {
+                    // ── Results column ─────────────────────────────
+                    Box(modifier = Modifier.widthIn(min = 100.dp)) {
                         lineMetrics.forEachIndexed { index, metrics ->
                             val result = results.getOrNull(index) ?: return@forEachIndexed
                             val yDp = with(density) { metrics.yOffset.toDp() }
@@ -280,7 +258,6 @@ fun CalculatorScreen(viewModel: MainViewModel) {
                                 )
                             }
                         }
-                        // Reserve height
                         textLayoutResult?.let {
                             Spacer(Modifier.height(with(density) { it.size.height.toDp() }))
                         }
@@ -290,64 +267,41 @@ fun CalculatorScreen(viewModel: MainViewModel) {
         )
     }
 
-    // ── Clear confirmation dialog ────────────────────────────────
+    // ── Dialogs ──────────────────────────────────────────────────
     if (showClearConfirmation) {
         AlertDialog(
             onDismissRequest = { viewModel.dismissClear() },
             title = { Text("Clear all") },
             text = { Text("Are you sure you want to clear all content?") },
-            confirmButton = {
-                TextButton(onClick = { viewModel.confirmClear() }) { Text("Clear") }
-            },
-            dismissButton = {
-                TextButton(onClick = { viewModel.dismissClear() }) { Text("Cancel") }
-            },
+            confirmButton = { TextButton(onClick = { viewModel.confirmClear() }) { Text("Clear") } },
+            dismissButton = { TextButton(onClick = { viewModel.dismissClear() }) { Text("Cancel") } },
         )
     }
 
-    // ── Copy bottom sheet ────────────────────────────────────────
     if (showCopySheet && copySheetLineIndex >= 0) {
         val result = results.getOrNull(copySheetLineIndex)
         val line = text.split("\n").getOrNull(copySheetLineIndex) ?: ""
-
         if (result != null) {
             ModalBottomSheet(
-                onDismissRequest = {
-                    showCopySheet = false
-                    copySheetLineIndex = -1
-                },
+                onDismissRequest = { showCopySheet = false; copySheetLineIndex = -1 },
                 sheetState = rememberModalBottomSheetState(),
             ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                ) {
+                Column(Modifier.fillMaxWidth().padding(16.dp)) {
                     Text("Copy", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 16.dp))
-                    TextButton(
-                        onClick = {
-                            viewModel.copyResult(result.displayText) { t -> clipboardManager.setText(AnnotatedString(t)) }
-                            showCopySheet = false
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) { Text("Copy with unit: ${result.displayText}", Modifier.fillMaxWidth()) }
-                    TextButton(
-                        onClick = {
-                            val n = result.value.amount.stripTrailingZeros().toPlainString()
-                            viewModel.copyResult(n) { t -> clipboardManager.setText(AnnotatedString(t)) }
-                            showCopySheet = false
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) { Text("Copy number only: ${result.value.amount.stripTrailingZeros().toPlainString()}", Modifier.fillMaxWidth()) }
-                    TextButton(
-                        onClick = {
-                            val f = "$line = ${result.displayText}"
-                            viewModel.copyResult(f) { t -> clipboardManager.setText(AnnotatedString(t)) }
-                            showCopySheet = false
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) { Text("Copy full line", Modifier.fillMaxWidth()) }
-                    Spacer(modifier = Modifier.height(32.dp))
+                    TextButton(onClick = {
+                        viewModel.copyResult(result.displayText) { t -> clipboardManager.setText(AnnotatedString(t)) }
+                        showCopySheet = false
+                    }, Modifier.fillMaxWidth()) { Text("Copy with unit: ${result.displayText}", Modifier.fillMaxWidth()) }
+                    TextButton(onClick = {
+                        val n = result.value.amount.stripTrailingZeros().toPlainString()
+                        viewModel.copyResult(n) { t -> clipboardManager.setText(AnnotatedString(t)) }
+                        showCopySheet = false
+                    }, Modifier.fillMaxWidth()) { Text("Copy number only", Modifier.fillMaxWidth()) }
+                    TextButton(onClick = {
+                        viewModel.copyResult("$line = ${result.displayText}") { t -> clipboardManager.setText(AnnotatedString(t)) }
+                        showCopySheet = false
+                    }, Modifier.fillMaxWidth()) { Text("Copy full line", Modifier.fillMaxWidth()) }
+                    Spacer(Modifier.height(32.dp))
                 }
             }
         }
@@ -359,28 +313,21 @@ private fun computeLineMetrics(text: String, layout: TextLayoutResult?): List<Li
         val count = text.split("\n").size.coerceAtLeast(1)
         return List(count) { i -> LineMetrics(yOffset = i * 56f, height = 56f) }
     }
-
     val lines = text.split("\n")
     val metrics = mutableListOf<LineMetrics>()
     var charOffset = 0
     val maxOffset = layout.layoutInput.text.length.coerceAtLeast(1) - 1
-
     for (logicalLine in lines) {
         val safeOffset = charOffset.coerceIn(0, maxOffset)
         val visualLine = layout.getLineForOffset(safeOffset)
         val yTop = layout.getLineTop(visualLine)
-
         val endOffset = (charOffset + logicalLine.length).coerceIn(0, maxOffset)
         val lastVisualLine = layout.getLineForOffset(endOffset)
         val yBottom = layout.getLineBottom(lastVisualLine)
-
         metrics.add(LineMetrics(yOffset = yTop, height = (yBottom - yTop).coerceAtLeast(24f)))
         charOffset += logicalLine.length + 1
     }
-
     return metrics
 }
 
-private fun Color.luminance(): Float {
-    return 0.2126f * red + 0.7152f * green + 0.0722f * blue
-}
+private fun Color.luminance(): Float = 0.2126f * red + 0.7152f * green + 0.0722f * blue
