@@ -157,7 +157,8 @@ fun CalculatorScreen(viewModel: MainViewModel) {
             cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
             onTextLayout = { textLayoutResult = it },
             decorationBox = { innerTextField ->
-                Row(modifier = Modifier.fillMaxSize()) {
+                val scrollState = rememberScrollState()
+                Row(modifier = Modifier.fillMaxSize().verticalScroll(scrollState)) {
                     // ── Line number gutter ──────────────────────
                     Box(modifier = Modifier.width(36.dp)) {
                         lineMetrics.forEachIndexed { index, metrics ->
